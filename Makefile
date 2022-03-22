@@ -8,13 +8,13 @@ GIT_COMMIT ?= $(shell git rev-parse HEAD)
 #GIT_SHORT_COMMIT := $(shell git rev-parse --short HEAD)
 TIMESTAMP := $(shell date '+%Y-%m-%d_%I:%M:%S%p')
 REGION ?= us-east-2
-IMAGE_REGISTRY ?= <REGISTRY>
-IMAGE_REPO ?= <REPO>
+IMAGE_REGISTRY ?= <IMAGE_REGISTRY>
+IMAGE_REPO ?= <IMAGE_REPO>
 DOCKERFILE ?= Dockerfile
 NO_CACHE ?= true
 GIT_COMMIT_IN ?=
 GIT_URL_IN ?=
-GO_MOD_PATH ?= jimmyray.io/data-api/main
+GO_MOD_PATH ?= jimmyray.io/data-api
 
 ifeq ($(strip $(GIT_COMMIT)),)
 GIT_COMMIT := $(GIT_COMMIT_IN)

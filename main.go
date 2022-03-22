@@ -2,281 +2,227 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
-	"runtime"
 
-	log "github.com/sirupsen/logrus"
+	Log "github.com/sirupsen/logrus"
+	"jimmyray.io/data-api/utils"
 
 	"github.com/gorilla/mux"
-
-	"github.com/google/uuid"
-
-	"github.com/go-playground/validator/v10"
 )
 
-type data struct {
-	ID      string `json:"ID" validate:"required"`
-	Message string `json:"Message" validate:"required"`
+func (ic InfoController) healthCheck(w http.ResponseWriter, r *http.Request) {
+	_, _ = fmt.Fprintln(w, "OK")
 }
 
-func (d data) String() string {
-	return fmt.Sprintf("ID:%s,Message:%s", d.ID, d.Message)
+func (ic InfoController) getServiceInfo(w http.ResponseWriter, r *http.Request) {
+	_, _ = fmt.Fprintln(w, ServiceInfo.String())
 }
 
-var emptyData = data{}
+func (c *Controller) createData(w http.ResponseWriter, r *http.Request) {
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(r.Body)
 
-type allData []data
+	var newData Data
 
-func (a allData) String() string {
-	returnData := ""
-
-	for _, x := range serviceData {
-		returnData += "{" + x.String() + "}"
-	}
-
-	return "[" + returnData + "]"
-}
-
-var serviceData allData
-
-type info struct {
-	NAME string `json:"service-name"`
-	ID   string `json:"service-id"`
-}
-
-func (i info) String() string {
-	out, err := json.Marshal(i)
+	err := json.NewDecoder(r.Body).Decode(&newData)
 	if err != nil {
-		panic(err)
-	}
-
-	return string(out)
-}
-
-var serviceInfo = info{}
-
-var incorrectInputError string = "Please check submission: {\"ID\":\"<ID_VALUE>\",\"Message\":\"<MESSAGE_VALUE>\"}"
-
-var serviceId uuid.UUID = uuid.New()
-
-var standardFields log.Fields
-
-var validate *validator.Validate
-
-func logErrors(event string, message string, errorData ...string) {
-	_, fileName, line, _ := runtime.Caller(1)
-	log.WithFields(log.Fields{"event": event, "line": line, "file": fileName, "data": errorData}).Error(message)
-}
-
-func healthCheck(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintln(w, "OK")
-}
-
-func getServiceInfo(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintln(w, serviceInfo.String())
-}
-
-func searchData(dataID string) (foundData data) {
-	for _, x := range serviceData {
-		if x.ID == dataID {
-			foundData = x
-		}
-	}
-
-	return
-}
-
-func createData(w http.ResponseWriter, r *http.Request) {
-	var newData data
-	input, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		logErrors("read-all", incorrectInputError)
-		fmt.Fprint(w, incorrectInputError)
+		errorData := utils.ErrorLog{Skip: 1, Event: HttpReqReadErr, Message: err.Error()}
+		utils.LogErrors(errorData)
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(IncorrectInputErr))
 		return
 	}
 
-	if !json.Valid(input) {
-		logErrors("json-not-welformed", "", string(input))
-		fmt.Fprint(w, incorrectInputError)
-		return
-	}
-
-	err = json.Unmarshal(input, &newData)
+	err = c.validate.Struct(newData)
 	if err != nil {
-		logErrors("unmarshal", "", newData.String())
-		fmt.Fprint(w, incorrectInputError)
+		errorData := utils.ErrorLog{Skip: 1, Event: HttpReqReadErr, Message: err.Error(), ErrorData: newData.String()}
+		utils.LogErrors(errorData)
+
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = fmt.Fprint(w, IncorrectInputErr)
 		return
 	}
 
-	err = validate.Struct(newData)
+	err = c.l.Create(newData)
+
 	if err != nil {
-		if _, ok := err.(*validator.InvalidValidationError); ok {
-			logErrors("validate-errors", "", err.Error())
+		if errors.Is(err, ErrDataConflict) {
+			w.WriteHeader(http.StatusConflict)
+			_, _ = fmt.Fprint(w, DataConflictErr)
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = fmt.Fprint(w, ErrInternalServer)
 		}
-
-		for _, err := range err.(validator.ValidationErrors) {
-			logErrors("validate-errors", fmt.Sprintf("[%s,%s]", err.Field(), err.Tag()))
-		}
-
-		logErrors("invalid-data-struct", "", newData.String())
-		fmt.Fprint(w, incorrectInputError)
-
 		return
 	}
-
-	foundData := searchData(newData.ID)
-
-	if foundData == emptyData {
-		serviceData = append(serviceData, newData)
-
-		err = json.NewEncoder(w).Encode(newData)
-		if err != nil {
-			logErrors("encode", "JSON Encoding in createData", newData.String())
-			return
-		}
-	} else {
-		w.WriteHeader(http.StatusConflict)
-		fmt.Fprintf(w, "ERROR: Data exists.")
-	}
+	w.WriteHeader(http.StatusCreated)
 }
 
-func getData(w http.ResponseWriter, r *http.Request) {
-	dataID := mux.Vars(r)["id"]
+func (c *Controller) getData(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
 
-	foundData := searchData(dataID)
+	foundData, found := c.l.Read(id)
+	if !found {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = fmt.Fprint(w, DataNotFoundErr)
+		return
+	}
 
 	w.WriteHeader(http.StatusOK)
 	err := json.NewEncoder(w).Encode(foundData)
 	if err != nil {
-		logErrors("encode", "JSON Encoding in getData", foundData.String())
+		errorData := utils.ErrorLog{Skip: 1, Event: JsonEncodeErr, Message: err.Error(), ErrorData: foundData.String()}
+		utils.LogErrors(errorData)
 	}
 }
 
-func getAllData(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	err := json.NewEncoder(w).Encode(serviceData)
+func (c Controller) getAllData(w http.ResponseWriter, r *http.Request) {
+	data := ReadAll()
+	err := json.NewEncoder(w).Encode(data)
 	if err != nil {
-		logErrors("unmarshal", "", serviceData.String())
+		errorData := utils.ErrorLog{Skip: 1, Event: JsonEncodeErr, Message: err.Error(), ErrorData: data.String()}
+		utils.LogErrors(errorData)
 	}
 }
 
-func updateData(w http.ResponseWriter, r *http.Request) {
-	dataID := mux.Vars(r)["id"]
-	var updatedData data
+func (c *Controller) patchData(w http.ResponseWriter, r *http.Request) {
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(r.Body)
 
-	input, err := ioutil.ReadAll(r.Body)
+	id := mux.Vars(r)["id"]
+	var input Data
+
+	err := json.NewDecoder(r.Body).Decode(&input)
 	if err != nil {
-		logErrors("read", incorrectInputError)
-		fmt.Fprint(w, incorrectInputError)
+		errorData := utils.ErrorLog{Skip: 1, Event: HttpReqReadErr, Message: err.Error()}
+		utils.LogErrors(errorData)
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = fmt.Fprint(w, IncorrectInputErr)
 		return
 	}
 
-	if !json.Valid(input) {
-		logErrors("json-not-welformed", "", string(input))
-		fmt.Fprint(w, incorrectInputError)
-		return
-	}
+	// need to have a single point of truth on id, should be the path var
+	// or eliminate the path var
+	input.ID = id
 
-	err = json.Unmarshal(input, &updatedData)
+	err = c.validate.Struct(input)
 	if err != nil {
-		logErrors("unmarshal", "", updatedData.String())
-		fmt.Fprint(w, incorrectInputError)
+		errorData := utils.ErrorLog{Skip: 1, Event: ValidationErr, Message: err.Error(), ErrorData: input.String()}
+		utils.LogErrors(errorData)
+
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = fmt.Fprint(w, IncorrectInputErr)
 		return
 	}
 
-	err = validate.Struct(updatedData)
+	updated, err := c.l.Update(input)
 	if err != nil {
-		if _, ok := err.(*validator.InvalidValidationError); ok {
-			logErrors("validate-errors", "", err.Error())
+		if errors.Is(err, ErrDataConflict) {
+			w.WriteHeader(http.StatusConflict)
+			_, _ = fmt.Fprint(w, ErrDataConflict)
+			return
 		}
-
-		for _, err := range err.(validator.ValidationErrors) {
-			logErrors("validate-errors", fmt.Sprintf("[%s,%s]", err.Field(), err.Tag()))
+		if errors.Is(err, ErrDataNotFound) {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = fmt.Fprint(w, ErrDataNotFound)
+			return
 		}
-
-		logErrors("invalid-data-struct", "", updatedData.String())
-		fmt.Fprint(w, incorrectInputError)
-
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	for i, singleData := range serviceData {
-		if singleData.ID == dataID {
-			if singleData != updatedData {
-				singleData.Message = updatedData.Message
-				serviceData = append(serviceData[:i], singleData)
-				err = json.NewEncoder(w).Encode(singleData)
-				if err != nil {
-					logErrors("encode", "JSON encoding failed", singleData.String())
-				}
-			} else {
-				w.WriteHeader(http.StatusConflict)
-				fmt.Fprintf(w, "NOOP: Data exists.")
-			}
-		}
+	err = json.NewEncoder(w).Encode(updated)
+	if err != nil {
+		errorData := utils.ErrorLog{Skip: 1, Event: JsonEncodeErr, Message: err.Error(), ErrorData: updated.String()}
+		utils.LogErrors(errorData)
 	}
 }
 
-func deleteData(w http.ResponseWriter, r *http.Request) {
-	dataID := mux.Vars(r)["id"]
-	found := false
+func (c Controller) deleteData(w http.ResponseWriter, r *http.Request) {
+	defer func(Body io.ReadCloser) {
+		_ = Body.Close()
+	}(r.Body)
 
-	for i, singleData := range serviceData {
-		if singleData.ID == dataID {
-			found = true
-			serviceData = append(serviceData[:i], serviceData[i+1:]...)
-			fmt.Fprintf(w, "Data with ID %v has been deleted.", dataID)
-		}
-	}
+	id := mux.Vars(r)["id"]
 
-	if !found {
-		fmt.Fprintf(w, "Data with ID %v not found.", dataID)
+	err := Delete(id)
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = fmt.Fprint(w, ErrDataNotFound)
 	}
 }
 
 func initService() {
-	if len(os.Args) < 2 {
-		fmt.Println("FATAL: Service name not provided.")
-		os.Exit(1)
-	}
+	appName := flag.String("name", "apis", "Application name")
+	logLevel := flag.String("level", "info", "Application log-level")
+	flag.Parse()
 
-	serviceInfo = info{os.Args[1], serviceId.String()}
+	ServiceInfo.NAME = *appName
+	ServiceInfo.ID = GetServiceId()
 
 	hostName, err := os.Hostname()
 	if err != nil {
 		panic(err)
 	}
 
-	standardFields = log.Fields{
+	fields := Log.Fields{
 		"hostname": hostName,
-		"service":  serviceInfo.NAME,
-		"id":       serviceInfo.ID,
+		"service":  ServiceInfo.NAME,
+		"id":       ServiceInfo.ID,
 	}
 
-	log.SetFormatter(&log.JSONFormatter{})
+	var level Log.Level
+	switch *logLevel {
+	case "debug":
+		level = Log.DebugLevel
+	case "error":
+		level = Log.ErrorLevel
+	case "fatal":
+		level = Log.FatalLevel
+	case "warn":
+		level = Log.WarnLevel
+	default:
+		level = Log.InfoLevel
+	}
 
-	log.WithFields(standardFields).WithFields(log.Fields{"args": os.Args, "mode": "init"}).Info("Service started successfully.")
+	utils.InitLogs(fields, level)
 
-	validate = validator.New()
+	utils.Logger.WithFields(utils.StandardFields).WithFields(Log.Fields{"args": os.Args, "mode": "init", "logLevel": level}).Info("Service started successfully.")
+
+	InitValidator()
+
+	c = Controller{
+		l:        &l,
+		validate: Validate,
+	}
+
+	ic = InfoController{
+		ServiceInfo: ServiceInfo,
+	}
+
+	l.serviceData = make(map[string]Data)
 }
 
 func main() {
-
 	initService()
 
-	router := mux.NewRouter().StrictSlash(true)
-	router.HandleFunc("/healthz", healthCheck)
-	router.HandleFunc("/info", getServiceInfo).Methods("GET")
-	router.HandleFunc("/data", getAllData).Methods("GET")
-	router.HandleFunc("/data", createData).Methods("PUT")
-	router.HandleFunc("/data/{id}", getData).Methods("GET")
-	router.HandleFunc("/data/{id}", updateData).Methods("PATCH")
-	router.HandleFunc("/data/{id}", deleteData).Methods("DELETE")
+	utils.Logger.WithFields(utils.StandardFields).WithFields(Log.Fields{"mode": "run"}).Info("Listening on port 8080")
 
-	log.WithFields(standardFields).WithFields(log.Fields{"mode": "run"}).Info("Listening on port 8080")
+	router := mux.NewRouter().StrictSlash(true)
+	router.HandleFunc("/healthz", ic.healthCheck).Methods("GET")
+	router.HandleFunc("/info", ic.getServiceInfo).Methods("GET")
+	router.HandleFunc("/data", c.getAllData).Methods("GET")
+	router.HandleFunc("/data", c.createData).Methods("PUT")
+	router.HandleFunc("/data/{id}", c.getData).Methods("GET")
+	router.HandleFunc("/data/{id}", c.patchData).Methods("PATCH")
+	router.HandleFunc("/data/{id}", c.deleteData).Methods("DELETE")
 
 	fmt.Println(http.ListenAndServe(":8080", router))
 }
