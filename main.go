@@ -28,7 +28,7 @@ func (c *Controller) createData(w http.ResponseWriter, r *http.Request) {
 		_ = Body.Close()
 	}(r.Body)
 
-	var newData Data
+	var newData Employee
 
 	err := json.NewDecoder(r.Body).Decode(&newData)
 	if err != nil {
@@ -41,7 +41,7 @@ func (c *Controller) createData(w http.ResponseWriter, r *http.Request) {
 
 	err = c.validate.Struct(newData)
 	if err != nil {
-		errorData := utils.ErrorLog{Skip: 1, Event: HttpReqReadErr, Message: err.Error(), ErrorData: newData.String()}
+		errorData := utils.ErrorLog{Skip: 1, Event: HttpReqReadErr, Message: err.Error(), ErrorData: string(newData.Json())}
 		utils.LogErrors(errorData)
 
 		w.WriteHeader(http.StatusBadRequest)
@@ -77,7 +77,7 @@ func (c *Controller) getData(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	err := json.NewEncoder(w).Encode(foundData)
 	if err != nil {
-		errorData := utils.ErrorLog{Skip: 1, Event: JsonEncodeErr, Message: err.Error(), ErrorData: foundData.String()}
+		errorData := utils.ErrorLog{Skip: 1, Event: JsonEncodeErr, Message: err.Error(), ErrorData: string(foundData.Json())}
 		utils.LogErrors(errorData)
 	}
 }
@@ -86,7 +86,7 @@ func (c Controller) getAllData(w http.ResponseWriter, r *http.Request) {
 	data := ReadAll()
 	err := json.NewEncoder(w).Encode(data)
 	if err != nil {
-		errorData := utils.ErrorLog{Skip: 1, Event: JsonEncodeErr, Message: err.Error(), ErrorData: data.String()}
+		errorData := utils.ErrorLog{Skip: 1, Event: JsonEncodeErr, Message: err.Error(), ErrorData: string(data.Json())}
 		utils.LogErrors(errorData)
 	}
 }
@@ -97,7 +97,7 @@ func (c *Controller) patchData(w http.ResponseWriter, r *http.Request) {
 	}(r.Body)
 
 	id := mux.Vars(r)["id"]
-	var input Data
+	var input Employee
 
 	err := json.NewDecoder(r.Body).Decode(&input)
 	if err != nil {
@@ -114,7 +114,7 @@ func (c *Controller) patchData(w http.ResponseWriter, r *http.Request) {
 
 	err = c.validate.Struct(input)
 	if err != nil {
-		errorData := utils.ErrorLog{Skip: 1, Event: ValidationErr, Message: err.Error(), ErrorData: input.String()}
+		errorData := utils.ErrorLog{Skip: 1, Event: ValidationErr, Message: err.Error(), ErrorData: string(input.Json())}
 		utils.LogErrors(errorData)
 
 		w.WriteHeader(http.StatusBadRequest)
@@ -140,7 +140,7 @@ func (c *Controller) patchData(w http.ResponseWriter, r *http.Request) {
 
 	err = json.NewEncoder(w).Encode(updated)
 	if err != nil {
-		errorData := utils.ErrorLog{Skip: 1, Event: JsonEncodeErr, Message: err.Error(), ErrorData: updated.String()}
+		errorData := utils.ErrorLog{Skip: 1, Event: JsonEncodeErr, Message: err.Error(), ErrorData: string(updated.Json())}
 		utils.LogErrors(errorData)
 	}
 }
@@ -160,11 +160,23 @@ func (c Controller) deleteData(w http.ResponseWriter, r *http.Request) {
 }
 
 func initService() {
-	appName := flag.String("name", "apis", "Application name")
-	logLevel := flag.String("level", "info", "Application log-level")
+	flagAppName := "Application name"
+	flagLogLevel := "Application log-level"
+	flagMock := "Enable data mocking"
+
+	var appName string
+	var logLevel string
+	var mock bool
+
+	flag.StringVar(&appName, "name", "apis", flagAppName)
+	flag.StringVar(&appName, "n", "apis", flagAppName)
+	flag.StringVar(&logLevel, "level", "info", flagLogLevel)
+	flag.StringVar(&logLevel, "l", "info", flagLogLevel)
+	flag.BoolVar(&mock, "mock", false, flagMock)
+	flag.BoolVar(&mock, "m", false, flagMock)
 	flag.Parse()
 
-	ServiceInfo.NAME = *appName
+	ServiceInfo.NAME = appName
 	ServiceInfo.ID = GetServiceId()
 
 	hostName, err := os.Hostname()
@@ -179,7 +191,7 @@ func initService() {
 	}
 
 	var level Log.Level
-	switch *logLevel {
+	switch logLevel {
 	case "debug":
 		level = Log.DebugLevel
 	case "error":
@@ -207,7 +219,18 @@ func initService() {
 		ServiceInfo: ServiceInfo,
 	}
 
-	l.serviceData = make(map[string]Data)
+	l.serviceData = make(map[string]Employee)
+
+	if mock {
+		err := loadMockData()
+
+		if err == nil {
+			utils.Logger.Info("Mock data loaded successfully.")
+		} else {
+			errorData := utils.ErrorLog{Skip: 1, Event: MockDataErr, Message: err.Error()}
+			utils.LogErrors(errorData)
+		}
+	}
 }
 
 func main() {
