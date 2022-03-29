@@ -1,5 +1,11 @@
 package main
 
+import (
+	"encoding/json"
+	Log "github.com/sirupsen/logrus"
+	"jimmyray.io/data-api/utils"
+)
+
 const mockData string = `{
 	"218000": {
 	  "id": "218000",
@@ -2901,3 +2907,26 @@ const mockData string = `{
 	}
   }
   `
+
+func loadMockData() error {
+	e := employees{}
+	err := json.Unmarshal([]byte(mockData), &e)
+
+	if err != nil {
+		utils.Logger.WithFields(Log.Fields{"error": err.Error()}).Debug("")
+	}
+	utils.Logger.WithFields(Log.Fields{"length": len(e)}).Debug("Employee map length")
+
+	if err == nil {
+		l.m.Lock()
+		defer l.m.Unlock()
+
+		for k, v := range e {
+			l.serviceData[k] = v
+		}
+	}
+
+	utils.Logger.WithFields(Log.Fields{"length": len(l.serviceData)}).Debug("ServiceData map length")
+
+	return err
+}

@@ -3,8 +3,6 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	Log "github.com/sirupsen/logrus"
-	"jimmyray.io/data-api/utils"
 	"sync"
 	"time"
 
@@ -22,8 +20,8 @@ const (
 	InternalServerErr string = "INTERNAL_SERVER_ERR"
 	MockDataErr       string = "Mock_Data_Err"
 	IncorrectInputErr string = `Please check submission:
-{"id":"<id>","fname":"<fname>","lname":"<lanme>","sex":"<sex>","dob":"<yyyy-mm-ddTHH:00MM:SSZ>",
-"hireDate":"<yyyy-mm-ddTHH:00MM:SSZ>","position":"<position>>","salary":<salary>,
+{"id":"<id>","fname":"<fname>","lname":"<lanme>","sex":"<sex>","dob":"<yyyy-mm-ddThh:MM:ssZ>",
+"hireDate":"<yyyy-mm-ddThh:MM:ssZ>","position":"<position>>","salary":<salary>,
 "dept":{"id":"<id>","name":"<name>","mgrId":"<mgrId>"},
 "address":{"street":"<street>","city":"<city>","county":"<county>","state":"<st>","zipcode":"<00000>"}}`
 )
@@ -192,27 +190,4 @@ func Delete(id string) error {
 
 	delete(l.serviceData, id)
 	return nil
-}
-
-func loadMockData() error {
-	e := employees{}
-	err := json.Unmarshal([]byte(mockData), &e)
-
-	if err != nil {
-		utils.Logger.WithFields(Log.Fields{"error": err.Error()}).Debug("")
-	}
-	utils.Logger.WithFields(Log.Fields{"length": len(e)}).Debug("Employee map length")
-
-	if err == nil {
-		l.m.Lock()
-		defer l.m.Unlock()
-
-		for k, v := range e {
-			l.serviceData[k] = v
-		}
-	}
-
-	utils.Logger.WithFields(Log.Fields{"length": len(l.serviceData)}).Debug("ServiceData map length")
-
-	return err
 }

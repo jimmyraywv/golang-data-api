@@ -96,7 +96,6 @@ func (c *Controller) patchData(w http.ResponseWriter, r *http.Request) {
 		_ = Body.Close()
 	}(r.Body)
 
-	id := mux.Vars(r)["id"]
 	var input Employee
 
 	err := json.NewDecoder(r.Body).Decode(&input)
@@ -107,10 +106,6 @@ func (c *Controller) patchData(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprint(w, IncorrectInputErr)
 		return
 	}
-
-	// need to have a single point of truth on id, should be the path var
-	// or eliminate the path var
-	input.ID = id
 
 	err = c.validate.Struct(input)
 	if err != nil {
@@ -233,19 +228,25 @@ func initService() {
 	}
 }
 
+func Router() *mux.Router {
+	r := mux.NewRouter().StrictSlash(true)
+	return r
+}
+
 func main() {
 	initService()
 
 	utils.Logger.WithFields(utils.StandardFields).WithFields(Log.Fields{"mode": "run"}).Info("Listening on port 8080")
 
-	router := mux.NewRouter().StrictSlash(true)
-	router.HandleFunc("/healthz", ic.healthCheck).Methods("GET")
-	router.HandleFunc("/info", ic.getServiceInfo).Methods("GET")
-	router.HandleFunc("/data", c.getAllData).Methods("GET")
-	router.HandleFunc("/data", c.createData).Methods("PUT")
-	router.HandleFunc("/data/{id}", c.getData).Methods("GET")
-	router.HandleFunc("/data/{id}", c.patchData).Methods("PATCH")
-	router.HandleFunc("/data/{id}", c.deleteData).Methods("DELETE")
+	//router := mux.NewRouter().StrictSlash(true)
+	router := Router()
+	router.HandleFunc("/healthz", ic.healthCheck).Methods(http.MethodGet)
+	router.HandleFunc("/info", ic.getServiceInfo).Methods(http.MethodGet)
+	router.HandleFunc("/data", c.getAllData).Methods(http.MethodGet)
+	router.HandleFunc("/data", c.createData).Methods(http.MethodPut)
+	router.HandleFunc("/data/{id}", c.getData).Methods(http.MethodGet)
+	router.HandleFunc("/data", c.patchData).Methods(http.MethodPatch)
+	router.HandleFunc("/data/{id}", c.deleteData).Methods(http.MethodDelete)
 
 	fmt.Println(http.ListenAndServe(":8080", router))
 }

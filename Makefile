@@ -8,8 +8,8 @@ GIT_COMMIT ?= $(shell git rev-parse HEAD)
 #GIT_SHORT_COMMIT := $(shell git rev-parse --short HEAD)
 TIMESTAMP := $(shell date '+%Y-%m-%d_%I:%M:%S%p')
 REGION ?= us-east-2
-IMAGE_REGISTRY ?= <IMAGE_REGISTRY>
-IMAGE_REPO ?= <IMAGE_REPO>
+IMAGE_REGISTRY ?= 207726343182.dkr.ecr.us-east-2.amazonaws.com
+IMAGE_REPO ?= octank/simple-go-api
 DOCKERFILE ?= Dockerfile
 NO_CACHE ?= true
 GIT_COMMIT_IN ?=
@@ -35,7 +35,7 @@ else
 VERSION := $(VERSION_FROM_FILE)-$(VERSION_HASH)
 endif
 
-.PHONY: build push pull meta clean compile init check
+.PHONY: build push pull meta clean compile init check test run
 
 build:	meta
 	$(info    [BUILD_CONTAINER_IMAGE])
@@ -81,3 +81,8 @@ check:
 	-go vet main
 	-golangci-lint run
 
+test:
+	go test $(GO_MOD_PATH) -test.v
+
+run:
+	./main.bin -n apis -l debug -m true
