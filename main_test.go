@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -25,6 +26,11 @@ const (
 
 var employeeCount int
 
+func getCurrentFuncName() string {
+	pc, _, _, _ := runtime.Caller(1)
+	return fmt.Sprintf("%s", runtime.FuncForPC(pc).Name())
+}
+
 func cleanData() {
 	//Clean-up, reset service data
 	l.serviceData = make(map[string]Employee)
@@ -33,7 +39,9 @@ func cleanData() {
 		fmt.Println("Fatal: Could not load mock data for testing.")
 	}
 
-	os.Exit(1)
+	fmt.Println("Finished ", getCurrentFuncName(), " function")
+
+	//os.Exit(1)
 }
 
 func TestMain(m *testing.M) {
@@ -54,6 +62,8 @@ func TestMain(m *testing.M) {
 
 	employeeCount = len(l.serviceData)
 
+	fmt.Println("Finished ", getCurrentFuncName(), " function")
+
 	exitVal := m.Run()
 	os.Exit(exitVal)
 }
@@ -63,6 +73,8 @@ func TestCount(t *testing.T) {
 	if employeeCount != expectedCount {
 		t.Errorf("Expected employee count %d, received %d", expectedCount, employeeCount)
 	}
+
+	fmt.Println("Finished ", getCurrentFuncName(), " function")
 }
 
 func TestGetAllData(t *testing.T) {
@@ -90,6 +102,8 @@ func TestGetAllData(t *testing.T) {
 	if len(e) != expectedCount {
 		t.Errorf("expected count was %d, received %d", expectedCount, len(e))
 	}
+
+	fmt.Println("Finished ", getCurrentFuncName(), " function")
 }
 
 func TestGetData(t *testing.T) {
@@ -115,6 +129,8 @@ func TestGetData(t *testing.T) {
 	if strings.Trim(string(data), "\n") != strings.Trim(employeePayload, "\n") {
 		t.Errorf("Expected %v, received %v", employeePayload, string(data))
 	}
+
+	fmt.Println("Finished ", getCurrentFuncName(), " function")
 }
 
 func TestPatchData(t *testing.T) {
@@ -177,6 +193,8 @@ func TestPatchData(t *testing.T) {
 	}
 
 	cleanData()
+
+	fmt.Println("Finished ", getCurrentFuncName(), " function")
 }
 
 func TestDeleteData(t *testing.T) {
@@ -204,6 +222,8 @@ func TestDeleteData(t *testing.T) {
 	}
 
 	cleanData()
+
+	fmt.Println("Finished ", getCurrentFuncName(), " function")
 }
 
 func TestCreateData(t *testing.T) {
@@ -231,4 +251,6 @@ func TestCreateData(t *testing.T) {
 	}
 
 	cleanData()
+
+	fmt.Println("Finished ", getCurrentFuncName(), " function")
 }
